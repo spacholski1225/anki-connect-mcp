@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server that provides seamless integration with Anki through the AnkiConnect add-on. This server enables AI assistants and other MCP clients to interact with your Anki flashcard collection programmatically.
 
+![Project](assets/anki-connect-mcp.gif)
+
 ## What is Anki Connect?
 
 [AnkiConnect](https://ankiweb.net/shared/info/2055492159) is a powerful Anki add-on that exposes Anki's functionality through a REST API. It allows external applications to:
@@ -22,35 +24,35 @@ The Model Context Protocol is a standardized way for AI assistants to connect to
 This MCP server provides comprehensive access to AnkiConnect functionality through the following tools:
 
 ### Flashcard Management
-- [`create_flashcard()`](src/index.ts:67) - Create new flashcards with front and back content
-- [`add_note()`](src/tools/notes.ts:22) - Add notes with custom fields and tags
-- [`add_notes()`](src/tools/notes.ts) - Bulk add multiple notes
-- [`update_note_fields()`](src/tools/notes.ts) - Update existing note fields
-- [`find_notes()`](src/tools/notes.ts) - Search for notes using Anki's query syntax
+- `create_flashcard()` - Create new flashcards with front and back content
+- `add_note()` - Add notes with custom fields and tags
+- `add_notes()` - Bulk add multiple notes
+- `update_note_fields()` - Update existing note fields
+- `find_notes()` - Search for notes using Anki's query syntax
 
 ### Deck Management
-- [`deck_names()`](src/tools/decks.ts:19) - Get all deck names
-- [`deck_names_and_ids()`](src/tools/decks.ts:30) - Get deck names with their IDs
-- [`change_deck()`](src/tools/decks.ts) - Move cards between decks
-- [`delete_decks()`](src/tools/decks.ts) - Delete decks and optionally their cards
-- [`get_deck_config()`](src/tools/decks.ts) - Retrieve deck configuration settings
+- `deck_names()` - Get all deck names
+- `deck_names_and_ids()` - Get deck names with their IDs
+- `change_deck()` - Move cards between decks
+- `delete_decks()` - Delete decks and optionally their cards
+- `get_deck_config()` - Retrieve deck configuration settings
 
 ### Card Operations
-- [`find_cards()`](src/tools/cards.ts) - Search for cards
-- [`cards_info()`](src/tools/cards.ts) - Get detailed card information
-- [`suspend()`](src/tools/cards.ts:18) / [`unsuspend()`](src/tools/cards.ts) - Suspend/unsuspend cards
-- [`are_suspended()`](src/tools/cards.ts) / [`are_due()`](src/tools/cards.ts) - Check card status
+- `find_cards()` - Search for cards
+- `cards_info()` - Get detailed card information
+- `suspend()` / `unsuspend()` - Suspend/unsuspend cards
+- `are_suspended()` / `are_due()` - Check card status
 
 ### GUI Control
-- [`gui_deck_browser()`](src/index.ts:177) - Open deck browser
-- [`gui_deck_review()`](src/index.ts:185) - Start deck review
-- [`gui_browse()`](src/index.ts:196) - Open card browser with search
-- [`gui_add_cards()`](src/index.ts:207) - Open add cards dialog
+- `gui_deck_browser()` - Open deck browser
+- `gui_deck_review()` - Start deck review
+- `gui_browse()` - Open card browser with search
+- `gui_add_cards()` - Open add cards dialog
 
 ### Utility Tools
-- [`version()`](src/index.ts:98) - Get AnkiConnect version
-- [`get_tags()`](src/index.ts:114) - Retrieve all tags
-- [`multi()`](src/index.ts:223) - Execute multiple AnkiConnect requests in batch
+- `version()` - Get AnkiConnect version
+- `get_tags()` - Retrieve all tags
+- `multi()` - Execute multiple AnkiConnect requests in batch
 
 ## Prerequisites
 
