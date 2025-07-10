@@ -77,8 +77,8 @@ AnkiConnect works out of the box, but you can customize its settings:
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/spacholski1225/mcp-server.git
-cd mcp-server
+git clone https://github.com/spacholski1225/anki-connect-mcp.git
+cd anki-connect-mcp
 ```
 
 2. Install dependencies:
