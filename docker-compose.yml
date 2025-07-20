@@ -7,7 +7,6 @@ services:
       dockerfile: Dockerfile
     environment:
       - ANKI_CONNECT_URL=http://host.docker.internal:8765
-    # Uncomment the following lines if the MCP server needs to expose a port
     ports:
       - "3000:3000"
     restart: unless-stopped
