@@ -10,7 +10,8 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p test/tsconfig.json",
+    "test": "vitest run"
   },
   "repository": {
     "type": "git",
@@ -40,7 +41,8 @@
   "devDependencies": {
     "@types/node": "^22.15.29",
     "ts-node": "^10.9.2",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^5.0.5"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
