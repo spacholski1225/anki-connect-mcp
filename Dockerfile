@@ -1,27 +1,15 @@
-# Base Node.js image (using LTS version for stability)
-FROM node:18-alpine
+FROM node:22-alpine
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files for dependency installation
 COPY package*.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm install
-
-# Copy the source code
 COPY . .
+RUN npm run build && npm prune --omit=dev
 
-# Build the TypeScript code
-RUN npm run build
-
-# Set default environment variable (can be overridden at runtime)
+# AnkiConnect runs on the host machine
 ENV ANKI_CONNECT_URL=http://host.docker.internal:8765
 
-# Document the exposed port (documentation only, doesn't actually expose it)
-# This is the port the MCP server uses, not AnkiConnect
-EXPOSE 3000
-
-# Run the MCP server
-CMD ["npm", "start"]
+# MCP over stdio: run with an attached stdin, e.g. `docker run -i --rm anki-connect-mcp`
+CMD ["node", "dist/index.js"]

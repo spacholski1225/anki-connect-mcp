@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   anki-connect-mcp:
     build:
@@ -7,6 +5,5 @@ services:
       dockerfile: Dockerfile
     environment:
       - ANKI_CONNECT_URL=http://host.docker.internal:8765
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
+    # MCP talks over stdio, so the container needs an open stdin and exposes no ports
+    stdin_open: true
