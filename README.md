@@ -21,38 +21,43 @@ The Model Context Protocol is a standardized way for AI assistants to connect to
 
 ## Features
 
-This MCP server provides comprehensive access to AnkiConnect functionality through the following tools:
+Every tool comes with a description, a title and MCP annotations (`readOnlyHint` / `destructiveHint`), so clients can auto-approve read-only tools and ask before destructive ones. On connect the server also sends instructions for the agent: Anki search syntax, note IDs vs card IDs, and the recommended flow for adding cards.
 
-### Flashcard Management
-- `create_flashcard()` - Create new flashcards with front and back content
-- `add_note()` - Add notes with custom fields and tags
-- `add_notes()` - Bulk add multiple notes
-- `update_note_fields()` - Update existing note fields
-- `find_notes()` - Search for notes using Anki's query syntax
+Errors are reported as tool errors (`isError: true`): `AnkiConnect error: ...` when Anki rejects a request, and `Could not reach AnkiConnect at <url>...` when Anki is not running.
 
-### Deck Management
-- `deck_names()` - Get all deck names
-- `deck_names_and_ids()` - Get deck names with their IDs
-- `change_deck()` - Move cards between decks
-- `delete_decks()` - Delete decks and optionally their cards
-- `get_deck_config()` - Retrieve deck configuration settings
+### Default tools
 
-### Card Operations
-- `find_cards()` - Search for cards
-- `cards_info()` - Get detailed card information
-- `suspend()` / `unsuspend()` - Suspend/unsuspend cards
-- `are_suspended()` / `are_due()` - Check card status
+- **Notes:** `add_note`, `add_notes`, `can_add_notes`, `update_note_fields`, `add_tags`, `remove_tags`, `find_notes`, `notes_info`
+- **Cards:** `find_cards`, `cards_info`, `cards_to_notes`, `suspend`, `unsuspend`, `are_suspended`, `are_due`, `get_intervals`
+- **Decks:** `deck_names`, `deck_names_and_ids`, `get_decks`, `change_deck`, `delete_decks`, `get_deck_config`
+- **Models:** `model_names`, `model_names_and_ids`, `model_field_names`, `model_fields_on_templates`
+- **Misc:** `version`, `get_tags`
 
-### GUI Control
-- `gui_deck_browser()` - Open deck browser
-- `gui_deck_review()` - Start deck review
-- `gui_browse()` - Open card browser with search
-- `gui_add_cards()` - Open add cards dialog
+`find_notes` and `find_cards` return `{ ids, total, truncated }` and accept an optional `limit` (default 100). `cards_info` strips the card CSS from the question and answer.
 
-### Utility Tools
-- `version()` - Get AnkiConnect version
-- `get_tags()` - Retrieve all tags
-- `multi()` - Execute multiple AnkiConnect requests in batch
+### Optional tool groups
+
+| Group | Enabled by | Tools |
+|-------|-----------|-------|
+| GUI | `ANKI_MCP_ENABLE_GUI=1` | `gui_browse`, `gui_add_cards`, `gui_current_card`, `gui_start_card_timer`, `gui_show_question`, `gui_show_answer`, `gui_answer_card`, `gui_deck_overview`, `gui_deck_browser`, `gui_deck_review`, `gui_exit_anki` |
+| Advanced | `ANKI_MCP_ENABLE_ADVANCED=1` | `multi`, `upgrade`, `save_deck_config`, `set_deck_config_id`, `clone_deck_config_id`, `remove_deck_config_id` |
+
+## Configuration
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `ANKI_CONNECT_URL` | `http://localhost:8765` | AnkiConnect address |
+| `ANKI_CONNECT_API_KEY` | – | Sent as `key` with every request; set it when AnkiConnect has `apiKey` configured |
+| `ANKI_MCP_ENABLE_GUI` | off | `1` or `true` enables the GUI tools |
+| `ANKI_MCP_ENABLE_ADVANCED` | off | `1` or `true` enables the advanced tools |
+
+### Upgrading from 1.x
+
+- `create_flashcard` was removed; use `add_note` with `deckName`, `modelName` and `fields`.
+- GUI tools, `multi`, `upgrade` and deck-config editing tools are hidden unless their group is enabled.
+- Tool results contain only AnkiConnect's `result` (no `{result, error}` envelope); errors come back as tool errors.
+- `find_notes` / `find_cards` return `{ ids, total, truncated }` instead of a plain array.
+- Node.js 20 or newer is required.
 
 ## Prerequisites
 
@@ -119,7 +124,7 @@ To use this MCP server with Claude Desktop, add the following configuration to y
         "deck_names",
         "cards_info",
         "deck_names_and_ids",
-        "gui_deck_browser"
+        "find_notes"
       ]
     }
   }
@@ -143,7 +148,7 @@ To use this MCP server with Claude Desktop, add the following configuration to y
         "deck_names",
         "cards_info",
         "deck_names_and_ids",
-        "gui_deck_browser"
+        "find_notes"
       ]
     }
   }
@@ -170,7 +175,7 @@ To use this MCP server with Claude Desktop, add the following configuration to y
         "deck_names",
         "cards_info",
         "deck_names_and_ids",
-        "gui_deck_browser"
+        "find_notes"
       ]
     }
   }
@@ -217,11 +222,11 @@ When using the Docker option, you **must** configure AnkiConnect with specific s
 
 Once configured with an MCP client like Claude Desktop, you can interact with your Anki collection naturally:
 
-- *"Create a flashcard about the capital of France"*
+- *"Create a flashcard about the capital of France in my Geography deck"*
 - *"Show me all my deck names"*
 - *"Find all cards tagged with 'vocabulary'"*
 - *"Suspend all cards in the 'Difficult Words' deck"*
-- *"Open the deck browser in Anki"*
+- *"Open the deck browser in Anki"* (needs `ANKI_MCP_ENABLE_GUI=1`)
 
 ## Troubleshooting
 
@@ -232,13 +237,21 @@ Once configured with an MCP client like Claude Desktop, you can interact with yo
 3. **Permission errors**: Ensure the MCP server has proper file system permissions
 4. **Tool not found**: Verify the MCP client configuration and restart the client
 
+## Development
+
+```bash
+npm run typecheck   # type-check sources and tests
+npm test            # protocol-level tests against a fake AnkiConnect
+npm run build
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
 ## License
 
-ISC License
+MIT License
 
 ## References
 
