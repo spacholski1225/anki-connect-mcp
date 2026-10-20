@@ -1,6 +1,6 @@
 {
   "name": "@spacholski1225/anki-connect-mcp",
-  "version": "1.0.5",
+  "version": "2.0.0",
   "description": "MCP server for Anki Connect integration",
   "main": "dist/index.js",
   "bin": {
@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
@@ -34,7 +35,7 @@
     "package.json"
   ],
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20"
   },
   "devDependencies": {
     "@types/node": "^22.15.29",
@@ -42,8 +43,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
-    "@spacholski1225/anki-connect-mcp": "^1.0.4",
-    "axios": "^1.9.0"
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.7"
   }
 }
