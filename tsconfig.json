@@ -10,5 +10,6 @@
     "skipLibCheck": true,
     "rootDir": "src",
     "outDir": "dist"
-  }
+  },
+  "include": ["src"]
 }
