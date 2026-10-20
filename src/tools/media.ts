@@ -4,7 +4,7 @@ import {
     RetrieveMediaFileResponse,
     DeleteMediaFileResponse,
     AnkiConnectRequest
-} from '../types/anki';
+} from '../types/anki/index.js';
 
 /**
  * Store a file with the specified base64-encoded contents inside the media folder.

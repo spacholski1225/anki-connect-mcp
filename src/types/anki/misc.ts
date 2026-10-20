@@ -1,5 +1,5 @@
-import { AnkiConnectResponse } from './base';
-import { CardInfo } from './cards';
+import { AnkiConnectResponse } from './base.js';
+import { CardInfo } from './cards.js';
 
 /**
  * Response for version check

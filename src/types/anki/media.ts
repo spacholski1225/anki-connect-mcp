@@ -1,4 +1,4 @@
-import { AnkiConnectResponse } from './base';
+import { AnkiConnectResponse } from './base.js';
 
 /**
  * Response for storing media file

@@ -1,4 +1,4 @@
-import { AnkiConnectResponse } from './base';
+import { AnkiConnectResponse } from './base.js';
 
 /**
  * Audio attachment for notes
