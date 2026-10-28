@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeAnki, unusedUrl } from "./helpers/fakeAnki.js";
+import { installFakeClipboard, testTempDir } from "./helpers/fakeClipboard.js";
 import {
   callTool,
   connect,
@@ -14,6 +16,7 @@ const ENV_KEYS = [
   "ANKI_CONNECT_API_KEY",
   "ANKI_MCP_ENABLE_GUI",
   "ANKI_MCP_ENABLE_ADVANCED",
+  "WAYLAND_DISPLAY",
 ] as const;
 
 const packageVersion: string = JSON.parse(
@@ -721,5 +724,112 @@ describe("media", () => {
     expect(result.isError ?? false).toBe(expected.isError ?? false);
     expect(result.content).toEqual(expected.content);
     if (params) expect(fake!.lastRequest()!.params).toEqual(params);
+  });
+
+  const png = Buffer.from(PIXEL_PNG, "base64");
+  const pasted = (bytes: Buffer, ext: string) =>
+    `pasted-${createHash("sha256").update(bytes).digest("hex").slice(0, 16)}.${ext}`;
+  const clipboardPicture = basicNote({ picture: [{ source: "clipboard", fields: ["Back"] }] });
+
+  it.each(["wl-paste", "xclip"] as const)("a screenshot on the clipboard lands in the note (%s)", async (tool) => {
+    await installFakeClipboard({ tool, types: ["TIMESTAMP", "text/plain", "image/png"], content: png });
+    const { client } = await start();
+    const result = await callTool(client, "add_note", clipboardPicture);
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toBe("42");
+    expect(fake!.requestsOf("storeMediaFile").map((r) => r.params)).toEqual([
+      { filename: pasted(png, "png"), data: PIXEL_PNG, deleteExisting: false },
+    ]);
+    expect(fake!.requestsOf("addNote")[0]!.params.note.fields.Back).toBe(`a pet<br><img src="${pasted(png, "png")}">`);
+  });
+
+  it.each([
+    {
+      name: "wl-paste without an image type",
+      setup: () => installFakeClipboard({ tool: "wl-paste", types: ["text/plain"] }),
+      expected: "picture[0]: The clipboard does not contain an image.",
+    },
+    {
+      name: "xclip with an empty clipboard",
+      setup: () => installFakeClipboard({ tool: "xclip", types: [] }),
+      expected: "picture[0]: The clipboard does not contain an image.",
+    },
+    {
+      name: "an advertised image that arrives empty",
+      setup: () => installFakeClipboard({ tool: "wl-paste", types: ["image/png"] }),
+      expected: "picture[0]: The clipboard does not contain an image.",
+    },
+    {
+      name: "no clipboard tool installed",
+      setup: async () => {
+        process.env.PATH = await testTempDir("empty-path-");
+        delete process.env.WAYLAND_DISPLAY;
+      },
+      expected: "picture[0]: Reading the clipboard needs xclip",
+    },
+  ])("clipboard problems create nothing: $name", async ({ setup, expected }) => {
+    await setup();
+    const { client } = await start();
+    const result = await callTool(client, "add_note", clipboardPicture);
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(expected);
+    expect(fake!.requestsOf("storeMediaFile")).toEqual([]);
+    expect(fake!.requestsOf("addNote")).toEqual([]);
+    expect(fake!.requestsOf("addNotes")).toEqual([]);
+  });
+
+  it.each([
+    {
+      name: "derives a content-addressed name",
+      args: { source: `data:image/png;base64,${PIXEL_PNG}` },
+      text: JSON.stringify(pasted(png, "png")),
+      params: { filename: pasted(png, "png"), data: PIXEL_PNG, deleteExisting: false },
+    },
+    {
+      name: "keeps an explicit filename",
+      args: { source: `data:image/png;base64,${PIXEL_PNG}`, filename: "diagram.png" },
+      text: JSON.stringify("diagram.png"),
+      params: { filename: "diagram.png", data: PIXEL_PNG, deleteExisting: false },
+    },
+    {
+      name: "accepts upper-case MIME and base64 and a line-wrapped payload",
+      args: { source: `DATA:image/PNG;BASE64,${PIXEL_PNG.slice(0, 40)}\n ${PIXEL_PNG.slice(40)}` },
+      text: JSON.stringify(pasted(png, "png")),
+      params: { filename: pasted(png, "png"), data: PIXEL_PNG, deleteExisting: false },
+    },
+    { name: "rejects an empty payload", args: { source: "data:image/png;base64," }, error: "The data URL payload is not valid base64." },
+    { name: "rejects invalid base64", args: { source: "data:image/png;base64,@@@@" }, error: "The data URL payload is not valid base64." },
+    { name: "rejects a non-base64 data URL", args: { source: "data:text/plain,hello" }, error: "must be base64" },
+    {
+      name: "needs a filename for an unknown type",
+      args: { source: "data:application/octet-stream;base64,AAAA" },
+      error: 'pass "filename"',
+    },
+  ])("store_media_file with a data URL $name", async ({ args, text, params, error }) => {
+    const { client } = await start();
+    const result = await callTool(client, "store_media_file", args);
+    if (error) {
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain(error);
+      expect(fake!.requestsOf("storeMediaFile")).toEqual([]);
+    } else {
+      expect(result.isError).toBeFalsy();
+      expect(textOf(result)).toBe(text);
+      expect(fake!.requestsOf("storeMediaFile").map((r) => r.params)).toEqual([params]);
+    }
+  });
+
+  it("a store failure on a data URL names the item without echoing the payload", async () => {
+    fake!.fail("storeMediaFile", "disk full");
+    const { client } = await start();
+    const result = await callTool(
+      client,
+      "add_note",
+      basicNote({ picture: [{ source: `data:image/png;base64,${PIXEL_PNG}`, fields: ["Back"] }] }),
+    );
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toBe(`AnkiConnect error: picture[0] (data:image/png;base64 (${png.length} bytes)): disk full`);
+    expect(textOf(result)).not.toContain(PIXEL_PNG);
+    expect(fake!.requestsOf("addNote")).toEqual([]);
   });
 });

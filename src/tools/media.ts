@@ -1,3 +1,6 @@
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { AnkiConnectError, type AnkiClient } from '../methods/anki.js';
 import type { NoteInfo } from '../types/anki/index.js';
@@ -22,27 +25,129 @@ const IMAGE_MIME: Record<string, string> = {
     gif: 'image/gif',
     webp: 'image/webp',
 };
+const MEDIA_EXT: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/gif': 'gif',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'audio/mpeg': 'mp3',
+    'audio/ogg': 'ogg',
+    'audio/wav': 'wav',
+    'audio/mp4': 'm4a',
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+};
 
 const mediaSource = {
     source: z
         .string()
         .min(1)
         .describe(
-            'Where Anki gets the file: an http(s) URL (Anki downloads it) or an absolute path on the computer running Anki (Anki reads it; this server never touches the file).',
+            'Where the file comes from: an http(s) URL (Anki downloads it); an absolute path on the computer running Anki (Anki reads it); "clipboard" for the image currently copied on the computer running this server, e.g. a screenshot the user just pasted into the chat; or a base64 data URL ("data:image/png;base64,..."), only for base64 you already have from another tool. Never try to write out the bytes of an image you can only see.',
         ),
     filename: z
         .string()
         .min(1)
         .optional()
         .describe(
-            'Name to store the file under in the Anki media folder. Defaults to the last segment of `source`. Anki may still rename it; the actual name is what gets used.',
+            'Name to store the file under in the Anki media folder. Defaults to the last segment of a URL or path, or "pasted-<hash>.<ext>" for clipboard and data URLs. Anki may still rename it; the actual name is what gets used.',
         ),
 };
 
 const mediaFilename = z.string().min(1).describe('File name in the media folder.');
 
-/** Builds storeMediaFile params. Always sends deleteExisting:false so a file other cards use is never replaced. */
-function storeParams({ source, filename }: { source: string; filename?: string }): Record<string, unknown> {
+const CLIPBOARD_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const CLIPBOARD_TIMEOUT_MS = 5_000;
+const CLIPBOARD_MAX_BYTES = 64 * 1024 * 1024;
+const NO_CLIPBOARD_IMAGE =
+    'The clipboard does not contain an image. Ask the user to copy the screenshot again (e.g. Ctrl+C or PrtSc) and retry.';
+const execFileAsync = promisify(execFile);
+
+/** Reads the image on the system clipboard of the machine running this server (Linux: wl-paste on Wayland, xclip on X11). */
+async function readClipboardImage(): Promise<{ bytes: Buffer; mime: string }> {
+    if (process.platform !== 'linux') {
+        throw new ToolError(
+            'Reading the clipboard is only supported on Linux. Save the image to a file and pass its absolute path as "source".',
+        );
+    }
+    const wayland = Boolean(process.env.WAYLAND_DISPLAY);
+    const [command, pkg] = wayland ? ['wl-paste', 'wl-clipboard'] : ['xclip', 'xclip'];
+    const listArgs = wayland ? ['--list-types'] : ['-selection', 'clipboard', '-t', 'TARGETS', '-o'];
+    const options = { encoding: 'buffer' as const, timeout: CLIPBOARD_TIMEOUT_MS, maxBuffer: CLIPBOARD_MAX_BYTES };
+
+    let types: string[] = [];
+    try {
+        const { stdout } = await execFileAsync(command, listArgs, options);
+        types = stdout
+            .toString('utf8')
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            throw new ToolError(`Reading the clipboard needs ${pkg}; install it on the computer running this server.`);
+        }
+        // A non-zero exit (e.g. an empty clipboard) means no types.
+    }
+    const mime = CLIPBOARD_IMAGE_TYPES.find((type) => types.includes(type));
+    if (mime === undefined) throw new ToolError(NO_CLIPBOARD_IMAGE);
+
+    let bytes: Buffer;
+    try {
+        const readArgs = wayland ? ['--no-newline', '--type', mime] : ['-selection', 'clipboard', '-t', mime, '-o'];
+        ({ stdout: bytes } = await execFileAsync(command, readArgs, options));
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+            throw new ToolError(`The clipboard image is larger than ${CLIPBOARD_MAX_BYTES / 1024 / 1024} MB.`);
+        }
+        throw new ToolError(`Could not read the clipboard: ${(error as Error).message}`);
+    }
+    // Some screenshot tools advertise an image but hand it over lazily; empty output means no image.
+    if (bytes.length === 0) throw new ToolError(NO_CLIPBOARD_IMAGE);
+    return { bytes, mime };
+}
+
+/** Content-addressed name for clipboard and data-URL files, so the same image is stored once. */
+function pastedName(bytes: Buffer, mime: string, description: string): string {
+    const ext = MEDIA_EXT[mime];
+    if (ext === undefined) throw new ToolError(`Cannot derive a file name for ${description}; pass "filename".`);
+    return `pasted-${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}.${ext}`;
+}
+
+/**
+ * Resolves a media source to storeMediaFile params plus a short description for error messages.
+ * Reads the clipboard for "clipboard"; never contacts Anki. Always sends deleteExisting:false so a file other cards use is never replaced.
+ */
+async function resolveSource({
+    source,
+    filename,
+}: {
+    source: string;
+    filename?: string;
+}): Promise<{ params: Record<string, unknown>; origin: string }> {
+    if (source === 'clipboard') {
+        const { bytes, mime } = await readClipboardImage();
+        const name = filename ?? pastedName(bytes, mime, `clipboard content of type "${mime}"`);
+        return { params: { filename: name, data: bytes.toString('base64'), deleteExisting: false }, origin: 'clipboard' };
+    }
+    if (/^data:/i.test(source)) {
+        const match = /^data:([^;,]*)((?:;[^;,]*)*),(.*)$/is.exec(source);
+        const mime = match?.[1]?.toLowerCase() ?? '';
+        const isBase64 = (match?.[2] ?? '').split(';').some((param) => param.toLowerCase() === 'base64');
+        if (match === null || !isBase64) throw new ToolError('Data URLs must be base64, e.g. "data:image/png;base64,iVBOR...".');
+        const payload = match[3]!.replace(/\s+/g, '');
+        // The payload never goes into error text: it can be huge.
+        if (payload === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(payload) || payload.length % 4 !== 0) {
+            throw new ToolError('The data URL payload is not valid base64.');
+        }
+        const bytes = Buffer.from(payload, 'base64');
+        const name = filename ?? pastedName(bytes, mime, `a data URL of type "${mime || 'unknown'}"`);
+        return {
+            params: { filename: name, data: payload, deleteExisting: false },
+            origin: `data:${mime || 'unknown'};base64 (${bytes.length} bytes)`,
+        };
+    }
     const isUrl = /^https?:\/\//i.test(source);
     let name = filename;
     if (name === undefined) {
@@ -65,9 +170,10 @@ function storeParams({ source, filename }: { source: string; filename?: string }
         }
         if (name === '') throw new ToolError(`Cannot derive a file name from "${source}"; pass "filename".`);
     }
-    return isUrl
+    const params = isUrl
         ? { filename: name, url: source, deleteExisting: false }
         : { filename: name, path: source, deleteExisting: false };
+    return { params, origin: source };
 }
 
 /** Returns the name Anki actually stored the file under, which can differ from the requested one. */
@@ -83,11 +189,12 @@ export const mediaTools: ToolDefinition[] = [
             'Stores a file in Anki\'s media folder and returns the name Anki stored it under, which can differ from the requested name. ' +
             'Always use the returned NAME: put `<img src="NAME">` (images) or `[sound:NAME]` (audio/video) into a note field. ' +
             'Never overwrites an existing file. ' +
-            'To attach media while creating or updating a note, prefer the `picture`/`audio`/`video` params of add_note, add_notes and update_note_fields.',
+            'To attach media while creating or updating a note, prefer the `picture`/`audio`/`video` params of add_note, add_notes and update_note_fields. ' +
+            '`source` may be "clipboard" for the image the user just copied or pasted.',
         inputSchema: { ...mediaSource },
         // Storing identical content again returns the same name.
         annotations: additive(true),
-        handler: async (args, anki) => storeFile(anki, storeParams(args)),
+        handler: async (args, anki) => storeFile(anki, (await resolveSource(args)).params),
     }),
     defineTool({
         name: 'get_media_files_names',
@@ -245,12 +352,24 @@ async function prepareNewNotes<T extends NewNote>(
     return prepared;
 }
 
+/** One media item, validated and resolved in phase 1, ready to store in phase 2. */
+interface PlannedItem {
+    kind: MediaKind;
+    label: string;
+    /** Short description of the source for error messages; never the base64 payload. */
+    origin: string;
+    targets: string[];
+    params: Record<string, unknown>;
+}
+
 /** Validates every job, then stores the files and returns each job's fields with the tags appended. */
 async function attach(anki: AnkiClient, jobs: AttachJob[]): Promise<Record<string, string>[]> {
-    // Phase 1: validate everything before storing anything.
-    const plans = jobs.map((job) =>
-        MEDIA_KINDS.flatMap((kind) =>
-            (job.media[kind] ?? []).map((item, j) => {
+    // Phase 1: validate everything before storing anything. Reading the clipboard here is safe: it has no Anki side effects.
+    const plans: PlannedItem[][] = [];
+    for (const job of jobs) {
+        const plan: PlannedItem[] = [];
+        for (const kind of MEDIA_KINDS) {
+            for (const [j, item] of (job.media[kind] ?? []).entries()) {
                 const label = `${job.prefix}${kind}[${j}]`;
                 const targets = [...new Set(item.fields)];
                 for (const target of targets) {
@@ -260,29 +379,29 @@ async function attach(anki: AnkiClient, jobs: AttachJob[]): Promise<Record<strin
                         );
                     }
                 }
-                let params: Record<string, unknown>;
                 try {
-                    params = storeParams(item);
+                    const { origin, params } = await resolveSource(item);
+                    plan.push({ kind, label, origin, targets, params });
                 } catch (error) {
                     if (error instanceof ToolError) throw new ToolError(`${label}: ${error.message}`);
                     throw error;
                 }
-                return { kind, label, source: item.source, targets, params };
-            }),
-        ),
-    );
+            }
+        }
+        plans.push(plan);
+    }
 
     // Phase 2: store sequentially and append. Files already stored stay when a later step fails:
     // the stored name may be a pre-existing identical file other cards use, and Anki's Check Media removes unused files.
     const results: Record<string, string>[] = [];
     for (const [i, job] of jobs.entries()) {
         const out = { ...job.fields };
-        for (const { kind, label, source, targets, params } of plans[i]!) {
+        for (const { kind, label, origin, targets, params } of plans[i]!) {
             let name: string;
             try {
                 name = await storeFile(anki, params);
             } catch (error) {
-                if (error instanceof AnkiConnectError) throw new AnkiConnectError(`${label} (${source}): ${error.message}`);
+                if (error instanceof AnkiConnectError) throw new AnkiConnectError(`${label} (${origin}): ${error.message}`);
                 throw error;
             }
             const tag = TAG[kind](name);
