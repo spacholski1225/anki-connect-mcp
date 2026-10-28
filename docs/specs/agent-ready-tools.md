@@ -80,7 +80,7 @@ Każdy tool ma opis, tytuł i adnotacje (tylko odczyt / destrukcyjny). Serwer pr
 ## Poza zakresem
 
 - Transport Streamable HTTP, OAuth, sesje, storage i Cloudflare Workers z template'u. AnkiConnect jest lokalny, więc stdio wystarcza. Wróci to dopiero, jeśli agent ma działać zdalnie.
-- Rejestracja tooli do mediów (`store_media_file` itd.). Ich implementacja zostaje w repo nieużywana.
+- Rejestracja tooli do mediów (`store_media_file` itd.). Ich implementacja zostaje w repo nieużywana. (zastąpione przez [media-attachments.md](./media-attachments.md))
 - `outputSchema` i `structuredContent` dla tooli.
 - Lintowanie i formatowanie (biome).
 - Paginacja kursorem. Wystarczy limit.

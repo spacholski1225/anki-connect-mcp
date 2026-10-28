@@ -37,15 +37,13 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): AnkiConnect
 
 export interface AnkiClient {
     /** Sends one action and returns its `result`; throws on AnkiConnect or transport errors. */
-    invoke<T = unknown>(action: string, params?: Record<string, unknown>): Promise<T>;
-    /** Sends one raw request and returns the `{result, error}` envelope; throws only on transport errors. */
-    send<T = unknown>(request: AnkiConnectRequest): Promise<AnkiConnectResponse<T>>;
+    invoke<T = unknown>(action: string, params?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<T>;
 }
 
 export function createAnkiClient(config: AnkiConnectConfig): AnkiClient {
     const { url, apiKey } = config;
 
-    async function send<T>(request: AnkiConnectRequest): Promise<AnkiConnectResponse<T>> {
+    async function send<T>(request: AnkiConnectRequest, timeoutMs = REQUEST_TIMEOUT_MS): Promise<AnkiConnectResponse<T>> {
         const body = apiKey === undefined ? request : { ...request, key: apiKey };
         let response: Response;
         try {
@@ -53,10 +51,10 @@ export function createAnkiClient(config: AnkiConnectConfig): AnkiClient {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(timeoutMs),
             });
         } catch (error) {
-            throw new AnkiConnectUnreachableError(url, describeFetchError(error));
+            throw new AnkiConnectUnreachableError(url, describeFetchError(error, timeoutMs));
         }
         if (!response.ok) {
             throw new AnkiConnectUnreachableError(url, `HTTP ${response.status} ${response.statusText}`.trim());
@@ -73,23 +71,23 @@ export function createAnkiClient(config: AnkiConnectConfig): AnkiClient {
         return data as AnkiConnectResponse<T>;
     }
 
-    async function invoke<T>(action: string, params?: Record<string, unknown>): Promise<T> {
+    async function invoke<T>(action: string, params?: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<T> {
         const request: AnkiConnectRequest = { action, version: API_VERSION };
         if (params !== undefined) request.params = params;
-        const { result, error } = await send<T>(request);
+        const { result, error } = await send<T>(request, options?.timeoutMs);
         if (error !== null && error !== undefined) {
             throw new AnkiConnectError(String(error));
         }
         return result;
     }
 
-    return { invoke, send };
+    return { invoke };
 }
 
-function describeFetchError(error: unknown): string {
+function describeFetchError(error: unknown, timeoutMs: number): string {
     if (error instanceof Error) {
         if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-            return `request timed out after ${REQUEST_TIMEOUT_MS} ms`;
+            return `request timed out after ${timeoutMs} ms`;
         }
         const cause = (error as { cause?: unknown }).cause;
         if (cause instanceof Error) {
@@ -99,12 +97,4 @@ function describeFetchError(error: unknown): string {
         return error.message;
     }
     return String(error);
-}
-
-/**
- * Sends a raw request using configuration from the environment and returns the
- * `{result, error}` envelope. Kept for the (currently unregistered) media helpers.
- */
-export async function callAnkiConnect<T = any>(request: AnkiConnectRequest): Promise<AnkiConnectResponse<T>> {
-    return createAnkiClient(configFromEnv()).send<T>(request);
 }

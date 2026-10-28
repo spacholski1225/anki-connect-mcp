@@ -4,7 +4,7 @@ import {
     additive,
     cardIds,
     defineTool,
-    limitIds,
+    limitResults,
     searchLimit,
     searchQuery,
     type ToolDefinition,
@@ -33,7 +33,7 @@ export const cardTools: ToolDefinition[] = [
             'Narrow the query instead of raising the limit when possible. Pass the IDs to cards_info for details.',
         inputSchema: { query: searchQuery, limit: searchLimit },
         annotations: READ_ONLY,
-        handler: async ({ query, limit }, anki) => limitIds(await anki.invoke<number[]>('findCards', { query }), limit),
+        handler: async ({ query, limit }, anki) => limitResults('ids', await anki.invoke<number[]>('findCards', { query }), limit),
     }),
     defineTool({
         name: 'cards_info',
