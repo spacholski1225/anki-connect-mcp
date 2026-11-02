@@ -1,16 +1,6 @@
 import { AnkiConnectResponse } from './base.js';
 
 /**
- * Audio attachment for notes
- */
-export interface NoteAudio {
-    url: string;
-    filename: string;
-    skipHash?: string;
-    fields: string;
-}
-
-/**
  * Note structure for creating notes
  */
 export interface Note {
@@ -18,7 +8,6 @@ export interface Note {
     modelName: string;
     fields: Record<string, string>;
     tags?: string[];
-    audio?: NoteAudio;
 }
 
 /**

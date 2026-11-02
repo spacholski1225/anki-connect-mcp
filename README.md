@@ -23,7 +23,7 @@ The Model Context Protocol is a standardized way for AI assistants to connect to
 
 Every tool comes with a description, a title and MCP annotations (`readOnlyHint` / `destructiveHint`), so clients can auto-approve read-only tools and ask before destructive ones. On connect the server also sends instructions for the agent: Anki search syntax, note IDs vs card IDs, and the recommended flow for adding cards.
 
-Errors are reported as tool errors (`isError: true`): `AnkiConnect error: ...` when Anki rejects a request, and `Could not reach AnkiConnect at <url>...` when Anki is not running.
+Errors are reported as tool errors (`isError: true`): `AnkiConnect error: ...` when Anki rejects a request, `Could not reach AnkiConnect at <url>...` when Anki is not running, and a plain message describing the problem when the arguments are wrong (e.g. an unknown field name).
 
 ### Default tools
 
@@ -32,8 +32,11 @@ Errors are reported as tool errors (`isError: true`): `AnkiConnect error: ...` w
 - **Decks:** `deck_names`, `deck_names_and_ids`, `get_decks`, `change_deck`, `delete_decks`, `get_deck_config`
 - **Models:** `model_names`, `model_names_and_ids`, `model_field_names`, `model_fields_on_templates`
 - **Misc:** `version`, `get_tags`
+- **Media:** `store_media_file`, `get_media_files_names`, `retrieve_media_file`, `delete_media_file`, `get_media_dir_path`
 
-`find_notes` and `find_cards` return `{ ids, total, truncated }` and accept an optional `limit` (default 100). `cards_info` strips the card CSS from the question and answer.
+`find_notes` and `find_cards` return `{ ids, total, truncated }` and accept an optional `limit` (default 100); `get_media_files_names` returns `{ names, total, truncated }` the same way. `cards_info` strips the card CSS from the question and answer.
+
+Images, audio and video: `add_note`, `add_notes` and `update_note_fields` take `picture`, `audio` and `video` arrays of `{ source, filename?, fields }`. `source` is an http(s) URL or an absolute path on the computer running Anki (Anki itself downloads or reads it, so a path must exist on that machine), `"clipboard"` for the image currently copied on the computer running this server (Linux only; needs `wl-clipboard` on Wayland or `xclip` on X11), or a base64 data URL (`data:image/png;base64,...`). Clipboard and data-URL files default to the name `pasted-<hash>.<ext>`, so the same image is stored once. The file is stored and appended to each listed field. To place an image inside text instead, call `store_media_file` and write `<img src="NAME">` with the returned name; Anki may rename files, so never assume the requested name. If a file cannot be stored, no note is created or changed and the error names the failing item. `retrieve_media_file` returns PNG, JPEG, GIF and WebP images up to 5 MB as image content the agent can see.
 
 ### Optional tool groups
 
@@ -50,6 +53,12 @@ Errors are reported as tool errors (`isError: true`): `AnkiConnect error: ...` w
 | `ANKI_CONNECT_API_KEY` | – | Sent as `key` with every request; set it when AnkiConnect has `apiKey` configured |
 | `ANKI_MCP_ENABLE_GUI` | off | `1` or `true` enables the GUI tools |
 | `ANKI_MCP_ENABLE_ADVANCED` | off | `1` or `true` enables the advanced tools |
+
+### Upgrading from 2.x
+
+- `audio` on `add_note` / `add_notes` is now an array of `{ source, filename?, fields[] }`; it used to be a single object with `url`, `filename`, `skipHash` and a single `fields` string.
+- `update_note_fields` is no longer marked idempotent (`idempotentHint: false`), because attaching media appends a new tag on every call. Its `fields` is now optional.
+- Five media tools are now in the default group: `store_media_file`, `get_media_files_names`, `retrieve_media_file`, `delete_media_file` (destructive) and `get_media_dir_path`.
 
 ### Upgrading from 1.x
 

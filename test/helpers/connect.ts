@@ -29,7 +29,7 @@ export async function connect(): Promise<Connection> {
 
 export interface ToolCallResult {
   isError?: boolean;
-  content: Array<{ type: string; text?: string }>;
+  content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
 }
 
 export async function callTool(

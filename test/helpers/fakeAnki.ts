@@ -86,6 +86,10 @@ export class FakeAnki {
     return this.requests[this.requests.length - 1];
   }
 
+  requestsOf(action: string): RecordedRequest[] {
+    return this.requests.filter((r) => r.action === action);
+  }
+
   async close(): Promise<void> {
     this.server.closeAllConnections?.();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));

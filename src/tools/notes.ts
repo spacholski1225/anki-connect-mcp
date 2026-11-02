@@ -4,26 +4,17 @@ import {
     additive,
     defineTool,
     destructive,
-    limitIds,
+    limitResults,
     noteIds,
     searchLimit,
     searchQuery,
     type ToolDefinition,
 } from './define.js';
+import { mediaAttachments, prepareNote, prepareNoteUpdate, prepareNotes } from './media.js';
 
 const fields = z
     .record(z.string(), z.string())
     .describe('Field values keyed by field name, e.g. {"Front": "...", "Back": "..."}. Names must match the model exactly (see model_field_names). Values may contain HTML.');
-
-const audio = z
-    .object({
-        url: z.string().describe('URL to download the audio file from.'),
-        filename: z.string().describe('File name to store it under in the Anki media folder.'),
-        skipHash: z.string().optional().describe('MD5 hash; if the downloaded file has this hash it is skipped.'),
-        fields: z.string().describe('Field name to append the [sound:...] tag to.'),
-    })
-    .optional()
-    .describe('Optional audio file to download and attach to the note.');
 
 const noteBase = {
     deckName: z.string().describe('Exact name of an existing deck (see deck_names). Use "Parent::Child" for subdecks.'),
@@ -32,7 +23,7 @@ const noteBase = {
     tags: z.array(z.string()).optional().describe('Tags to put on the note, one tag per array item (no spaces inside a tag).'),
 };
 
-const note = z.object({ ...noteBase, audio });
+const note = z.object({ ...noteBase, ...mediaAttachments });
 
 export const noteTools: ToolDefinition[] = [
     defineTool({
@@ -41,21 +32,23 @@ export const noteTools: ToolDefinition[] = [
         description:
             'Creates one note in the given deck using the given model (note type) and field values. Anki then generates one or more cards from it. ' +
             'Returns the new note ID. Fails (tool error) if the deck or model does not exist, a field name is wrong, the first field is empty, or the note is a duplicate. ' +
-            'Tip: check with can_add_notes first; for several notes prefer add_notes.',
-        inputSchema: { ...noteBase, audio },
+            'Tip: check with can_add_notes first; for several notes prefer add_notes. ' +
+            'Attach images/audio/video with `picture`/`audio`/`video`: each item\'s `source` is an http(s) URL or an absolute path on the computer running Anki, and the file is appended to the listed fields. ' +
+            'Fails before creating anything if a file cannot be stored.',
+        inputSchema: { ...noteBase, ...mediaAttachments },
         annotations: additive(false),
-        handler: ({ deckName, modelName, fields, tags, audio }, anki) =>
-            anki.invoke('addNote', { note: { deckName, modelName, fields, tags, audio } }),
+        handler: async (note, anki) => anki.invoke('addNote', { note: await prepareNote(anki, note) }),
     }),
     defineTool({
         name: 'add_notes',
         title: 'Add notes (batch)',
         description:
             'Creates several notes in one call. Returns an array of new note IDs in the same order as the input; an entry is null if that note could not be created (e.g. duplicate or empty first field). ' +
-            'Run can_add_notes first to find out which notes will fail.',
+            'Run can_add_notes first to find out which notes will fail. ' +
+            'If any attached file cannot be stored, no note is created and the error names the note (e.g. notes[2].picture[0]).',
         inputSchema: { notes: z.array(note).describe('Notes to create.') },
         annotations: additive(false),
-        handler: ({ notes }, anki) => anki.invoke('addNotes', { notes }),
+        handler: async ({ notes }, anki) => anki.invoke('addNotes', { notes: await prepareNotes(anki, notes) }),
     }),
     defineTool({
         name: 'can_add_notes',
@@ -72,13 +65,19 @@ export const noteTools: ToolDefinition[] = [
         title: 'Update note fields',
         description:
             'Overwrites the given fields of an existing note (takes a note ID, not a card ID). Fields not listed are left unchanged. ' +
-            'The previous values are lost, so read the note with notes_info first if you need them. Returns null on success.',
+            'The previous values are lost, so read the note with notes_info first if you need them. Returns null on success. ' +
+            'Media in `picture`/`audio`/`video` is appended to the field\'s new value, or to its current value if the field is not being overwritten.',
         inputSchema: {
             id: z.number().int().describe('Note ID to update (a note ID, not a card ID).'),
-            fields: z.record(z.string(), z.string()).describe('New field values keyed by field name.'),
+            fields: z
+                .record(z.string(), z.string())
+                .optional()
+                .describe('New field values keyed by field name. Omit or pass {} to only attach media.'),
+            ...mediaAttachments,
         },
-        annotations: destructive(true),
-        handler: ({ id, fields }, anki) => anki.invoke('updateNoteFields', { note: { id, fields } }),
+        // Not idempotent: each retry appends the media tags again.
+        annotations: destructive(false),
+        handler: async (update, anki) => anki.invoke('updateNoteFields', { note: await prepareNoteUpdate(anki, update) }),
     }),
     defineTool({
         name: 'add_tags',
@@ -113,7 +112,7 @@ export const noteTools: ToolDefinition[] = [
             'Narrow the query instead of raising the limit when possible. Pass the IDs to notes_info for details.',
         inputSchema: { query: searchQuery, limit: searchLimit },
         annotations: READ_ONLY,
-        handler: async ({ query, limit }, anki) => limitIds(await anki.invoke<number[]>('findNotes', { query }), limit),
+        handler: async ({ query, limit }, anki) => limitResults('ids', await anki.invoke<number[]>('findNotes', { query }), limit),
     }),
     defineTool({
         name: 'notes_info',

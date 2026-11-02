@@ -1,6 +1,6 @@
 {
   "name": "@spacholski1225/anki-connect-mcp",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "MCP server for Anki Connect integration",
   "main": "dist/index.js",
   "bin": {

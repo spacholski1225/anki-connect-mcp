@@ -8,8 +8,9 @@ import {
     createAnkiClient,
     type AnkiClient,
 } from './methods/anki.js';
-import type { ToolDefinition } from './tools/define.js';
+import { ImageResult, ToolError, type ToolDefinition } from './tools/define.js';
 import { noteTools } from './tools/notes.js';
+import { mediaTools } from './tools/media.js';
 import { cardTools } from './tools/cards.js';
 import { deckConfigTools, deckTools } from './tools/decks.js';
 import { modelTools } from './tools/models.js';
@@ -38,7 +39,9 @@ Recommended flow for adding cards:
 3. can_add_notes to check the notes (false means duplicate, empty first field, or unknown deck/model).
 4. add_notes (or add_note for a single note). Entries that come back null were not created.
 
-Tool errors: if a result is marked as an error, read its message. "AnkiConnect error: ..." means Anki rejected the request; "Could not reach AnkiConnect ..." means Anki is not running or the add-on is missing, so ask the user to start Anki instead of retrying in a loop.`;
+Images, audio and video: add_note, add_notes and update_note_fields take \`picture\`, \`audio\` and \`video\` arrays of {source, filename?, fields}. \`source\` is an http(s) URL or an absolute path on the computer running Anki. Anki itself downloads or reads it, so a path must exist on that machine. The file is stored and appended to each listed field. To place an image inside text instead, call store_media_file and write \`<img src="NAME">\` with the returned NAME; Anki may rename files, so never assume the requested name. When the user pastes or attaches an image in the chat, you only see it; you cannot pass its bytes. Use source "clipboard": it reads the image currently copied on the user's computer, which is the screenshot they just pasted. If the result says the clipboard has no image, ask the user to copy it again. Use a data URL source only for base64 you received from another tool.
+
+Tool errors: if a result is marked as an error, read its message. "AnkiConnect error: ..." means Anki rejected the request; "Could not reach AnkiConnect ..." means Anki is not running or the add-on is missing, so ask the user to start Anki instead of retrying in a loop; any other message describes a problem with your arguments (e.g. an unknown field name), so fix them and retry.`;
 
 function readPackageVersion(): string {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
@@ -57,12 +60,18 @@ function textResult(text: string, isError = false): CallToolResult {
 async function runTool(tool: ToolDefinition, args: unknown, anki: AnkiClient): Promise<CallToolResult> {
     try {
         const result = await tool.handler(args, anki);
+        if (result instanceof ImageResult) {
+            return { content: [{ type: 'image', data: result.data, mimeType: result.mimeType }] };
+        }
         return textResult(JSON.stringify(result ?? null));
     } catch (error) {
         if (error instanceof AnkiConnectError) {
             return textResult(`AnkiConnect error: ${error.message}`, true);
         }
         if (error instanceof AnkiConnectUnreachableError) {
+            return textResult(error.message, true);
+        }
+        if (error instanceof ToolError) {
             return textResult(error.message, true);
         }
         const message = error instanceof Error ? error.message : String(error);
@@ -74,7 +83,7 @@ export function createServer(): McpServer {
     const env = process.env;
     const anki = createAnkiClient(configFromEnv(env));
 
-    const tools: ToolDefinition[] = [...miscTools, ...deckTools, ...modelTools, ...noteTools, ...cardTools];
+    const tools: ToolDefinition[] = [...miscTools, ...deckTools, ...modelTools, ...noteTools, ...mediaTools, ...cardTools];
     if (isEnabled(env.ANKI_MCP_ENABLE_GUI)) tools.push(...guiTools);
     if (isEnabled(env.ANKI_MCP_ENABLE_ADVANCED)) tools.push(...miscAdvancedTools, ...deckConfigTools);
 
